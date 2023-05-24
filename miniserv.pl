@@ -154,8 +154,9 @@ elsif (!$config{'no_pam'}) {
 			$pam_conv_func_called = 0;
 			$pam_username = "test";
 			$pam_password = "test";
-			$pamh->pam_authenticate();
-			if ($pam_conv_func_called) {
+			my $pam_ret = $pamh->pam_authenticate();
+			if ($pam_conv_func_called ||
+			    $pam_ret == PAM_SUCCESS()) {
 				push(@startup_msg,
 				     "PAM authentication enabled");
 				$use_pam = 1;
@@ -3587,8 +3588,8 @@ sub validate_user_caseless
 {
 my @args = @_;
 my @rv = &validate_user(@args);
-if (!$rv[0] && $args[0] =~ /[A-Z]/) {
-	$args[0] =~ tr/A-Z/a-z/;
+if (!$rv[0] && $args[0] ne lc($args[0])) {
+	$args[0] = lc($args[0]);
 	@rv = &validate_user(@args);
 	}
 return @rv;
@@ -3762,8 +3763,7 @@ elsif ($config{'passwd_file'}) {
 					local $m = $l[$config{'passwd_mindex'}];
 					local $day = time()/(24*60*60);
 					print DEBUG "validate_unix_user: c=$c m=$m day=$day\n";
-					$m ||= 0;
-					if ($c =~ /^\d+/ && $day - $c > $m) {
+					if ($c =~ /^\d+/ && $m =~ /^\d+/ && $day - $c > $m) {
 						# Yep, it has ..
 						$rv = 2;
 						}

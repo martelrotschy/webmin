@@ -327,7 +327,12 @@ if ($driver_handle && !$config{'nodbi'}) {
 	$cstr .= ";mysql_socket=$config{'sock'}" if ($config{'sock'});
 	$cstr .= ";mysql_read_default_file=$config{'my_cnf'}"
 		if (-r $config{'my_cnf'});
-	$cstr .= ";mysql_ssl=1" if ($config{'ssl'});
+	if ($config{'ssl'}) {
+		$cstr .= ";mysql_ssl=1";
+		if ($DBD::mysql::VERSION >= 4.043) {
+			$cstr .= ";mysql_ssl_optional=1";
+			}
+		}
 	local $dbh = $driver_handle->connect($cstr, $mysql_login, $mysql_pass,
 					     { });
 	$dbh || &error("DBI connect failed : ",$driver_handle->errstr);
@@ -1217,8 +1222,8 @@ local $file = @old ? $old[0]->{'file'} :
 local $lref = &read_file_lines($file);
 
 for(my $i=0; $i<@old || $i<@$values; $i++) {
-	local $old = $old[$i];
-	local $line = $values->[$i] eq "" ? $name :
+	local $old = $i < @old ? $old[$i] : undef;
+	local $line = $i >= @$values || $values->[$i] eq "" ? $name :
 			"$name = $values->[$i]";
 	if ($old && defined($values->[$i])) {
 		# Updating
@@ -1756,6 +1761,13 @@ else {
 		(map { $perms->{$_} ? 'Y' : 'N' } @{ $pfields }),
 		@{ $ssl_field_values }, @{ $other_field_values });
 	&execute_sql_logged($master_db, 'flush privileges');
+
+	if ($variant eq "mysql" && &compare_version_numbers($ver, "5.7.6") >= 0) {
+		&execute_sql_logged($master_db,
+		    "alter user '$user'\@'$host' identified $plugin by ".
+		        "'".&escapestr($pass)."'");
+		&execute_sql_logged($master_db, 'flush privileges');
+		}
 	}
 }
 

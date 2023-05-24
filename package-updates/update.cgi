@@ -8,7 +8,7 @@ if ($in{'redir'}) {
 	$redirdesc = $in{'redirdesc'};
 	}
 elsif ($in{'redirdesc'}) {
-	$redir = "javascript:history.back()";
+	$redir = $ENV{'HTTP_REFERER'};
 	$redirdesc = $in{'redirdesc'};
 	}
 else {
@@ -17,7 +17,7 @@ else {
 	$redirdesc = $text{'index_return'};
 	}
 
-if ($in{'refresh'} || $in{refresh_top}) {
+if ($in{'refresh'} || $in{'refresh_top'}) {
 	&ui_print_unbuffered_header(undef, $text{'refresh_title'}, "");
 
 	# Clear all caches
@@ -121,7 +121,7 @@ else {
 				push(@pkgnames, $p);
 				$pkgsystem ||= $s;
 				}
-			print &text($msg, "<tt>".join(" ", @pkgnames)."</tt>"),
+			print &text($msg, "<tt>".&html_escape(join(" ", @pkgnames))."</tt>"),
 			      "<br>\n";
 			print "<ul>\n";
 			@got = &package_install_multiple(
@@ -133,7 +133,7 @@ else {
 			foreach my $ps (@pkgs) {
 				($p, $s) = split(/\//, $ps);
 				next if ($donedep{$p});
-				print &text($msg, "<tt>$p</tt>"),"<br>\n";
+				print &text($msg, "<tt>@{[&html_escape($p)]}</tt>"),"<br>\n";
 				print "<ul>\n";
 				@pgot = &package_install(
 					$p, $s, $in{'mode'} eq 'new');

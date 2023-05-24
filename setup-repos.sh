@@ -150,10 +150,6 @@ rpm)
   echo "gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-webmin" >>$rhel_repo_file
   echo "gpgcheck=1" >>$rhel_repo_file
   echo "  .. done"
-  # Clean meta
-  echo "  Cleaning repository metadata .."
-  $clean 1>/dev/null 2>&1
-  echo "  .. done"
   ;;
 deb)
   # Install our keys

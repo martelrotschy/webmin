@@ -306,6 +306,7 @@ ui_etime=Invalid time
 ui_paging=Showing rows $1 to $2 of $3
 ui_rowlabel=$2 in row $1 :
 ui_filterbox=Type to filter..
+ui_of=of
 
 header_statusmsg=$1 logged into $2 $3 on $4 ($5)
 
@@ -378,6 +379,10 @@ nice_size_MiB=MiB
 nice_size_kB=kB
 nice_size_kiB=KiB
 nice_size_b=bytes
+
+paginator_showing_start=Showing $1 to $2 of $3 items on page
+paginator_showing_end=of $1 pages
+paginator_nosearchrs=There are no results matching <tt>$1</tt> query
 
 langauto_include=Include machine translations
 

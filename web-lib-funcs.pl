@@ -260,9 +260,11 @@ $tmp =~ s/>/&gt;/g;
 $tmp =~ s/\"/&quot;/g;
 $tmp =~ s/\'/&#39;/g;
 $tmp =~ s/=/&#61;/g;
-# Never escape spaces
+# Never double escape following common entities
 $tmp =~ s/&amp;#x20;/&#x20;/g;
 $tmp =~ s/&amp;nbsp;/&nbsp;/g;
+$tmp =~ s/&amp;lt;/&lt;/g;
+$tmp =~ s/&amp;gt;/&gt;/g;
 return $tmp;
 }
 
@@ -1090,6 +1092,7 @@ my $dir = $current_lang_info->{'dir'} ? "dir=\"$current_lang_info->{'dir'}\"" : 
 my $html_body = "<body bgcolor=\"#$bgcolor\" link=\"#$link\" vlink=\"#$link\" text=\"#$text\" style=\"height:100%\" $bgimage $tconfig{'inbody'} $dir $_[8]>\n";
 $html_body =~ s/\s+\>/>/g;
 print $html_body;
+print "<script>function _document_cookie_set_client_height(){document.cookie='client_height='+document.documentElement.clientHeight+'';}_document_cookie_set_client_height();window.onresize=_document_cookie_set_client_height</script>\n";
 
 if (defined(&theme_prebody)) {
 	&theme_prebody(@_);
@@ -8501,6 +8504,45 @@ foreach my $o (@lang_order_list) {
 return "$dir/$file.html";
 }
 
+=head2 read_help_file(module, file)
+
+Reads the contents of a help file, either unpacked or from a ZIP
+
+=cut
+sub read_help_file
+{
+my ($module, $file) = @_;
+my $path = &help_file($module, $file);
+if (-r $path) {
+	return &read_file_contents($path);
+	}
+my $gzpath = $path.".gz";
+if (-r $gzpath) {
+	my $out = &backquote_command(
+		"gunzip -c ".quotemeta($gzpath)." 2>/dev/null");
+	return $? ? undef : $out;
+	}
+my $zip = $path;
+$zip =~ s/\/[^\/]+$/\/help.zip/;
+if (-r $zip) {
+	my @files;
+	foreach my $o (@lang_order_list) {
+		next if ($o eq "en");
+		push(@files, $file.".".$o.".auto.html");
+		push(@files, $file.".".$o.".html");
+		}
+	push(@files, $file.".html");
+	foreach my $f (@files) {
+		my $out = &backquote_command(
+			"unzip -p ".quotemeta($zip)." ".
+			quotemeta($f)." 2>/dev/null");
+		return $out if ($out && !$?);
+		}
+	return undef;
+	}
+return undef;
+}
+
 =head2 seed_random
 
 Seeds the random number generator, if not already done in this script. On Linux
@@ -9220,20 +9262,27 @@ if (!-e $uinfo->[7] && $gconfig{'create_homedir'}) {
 	}
 }
 
-=head2 filter_javascript(text)
+=head2 filter_javascript(text, [type])
 
 Disables all javascript <script>, onClick= and so on tags in the given HTML,
 and returns the new HTML. Useful for displaying HTML from an un-trusted source.
+If type is given filters on specific document type
 
 =cut
 sub filter_javascript
 {
-my ($rv) = @_;
-$rv =~ s/<\s*script[^>]*>([\000-\377]*?)<\s*\/script\s*>//gi;
-$rv =~ s/(on(Abort|BeforeUnload|Blur|Change|Click|ContextMenu|Copy|Cut|DblClick|Drag|DragEnd|DragEnter|DragLeave|DragOver|DragStart|DragDrop|Drop|Error|Focus|FocusIn|FocusOut|HashChange|Input|Invalid|KeyDown|KeyPress|KeyUp|Load|MouseDown|MouseEnter|MouseLeave|MouseMove|MouseOut|MouseOver|MouseUp|Move|Paste|PageShow|PageHide|Reset|Resize|Scroll|Search|Select|Submit|Toggle|Unload)=)/x$1/gi;
-$rv =~ s/(javascript(:|&colon;|&#58;|&#x3A;))/x$1/gi;
-$rv =~ s/(vbscript(:|&colon;|&#58;|&#x3A;))/x$1/gi;
-$rv =~ s/<([^>]*\s|)(on\S+=)(.*)>/<$1x$2$3>/gi;
+my ($rv, $type) = @_;
+if (!$type || $type eq 'html') {
+	$rv =~ s/<\s*script[^>]*>([\000-\377]*?)<\s*\/script\s*>//gi;
+	$rv =~ s/(on(Abort|BeforeUnload|Blur|Change|Click|ContextMenu|Copy|Cut|DblClick|Drag|DragEnd|DragEnter|DragLeave|DragOver|DragStart|DragDrop|Drop|Error|Focus|FocusIn|FocusOut|HashChange|Input|Invalid|KeyDown|KeyPress|KeyUp|Load|MouseDown|MouseEnter|MouseLeave|MouseMove|MouseOut|MouseOver|MouseUp|Move|Paste|PageShow|PageHide|Reset|Resize|Scroll|Search|Select|Submit|Toggle|Unload)=)/x$1/gi;
+	$rv =~ s/(javascript(:|&colon;|&#58;|&#x3A;))/x$1/gi;
+	$rv =~ s/(vbscript(:|&colon;|&#58;|&#x3A;))/x$1/gi;
+	$rv =~ s/<([^>]*\s|)(on\S+=)(.*)>/<$1x$2$3>/gi;
+	}
+if ($type eq 'pdf') {
+	$rv =~ s/([\n]*)<<[\n((?:.*?|\n)*?)][\w\s\/]+[\n((?:.*?|\n)*?)][\w\s\/]+JavaScript[\w\s\/]*[\n((?:.*?|\n)*?)][\w\s\/]+\s.*?>>[\n]*/$1/gmsi;
+	$rv =~ s/<<.*?JavaScript.*?>>([\n]+|[\s]*)//gi;
+	}
 return $rv;
 }
 
@@ -10414,7 +10463,7 @@ if ($$ == $main::initial_process_id) {
 		&disconnect_userdb($str, $conn->[0], 1);
 		}
 
-	if (!$ENV{'SCRIPT_NAME'}) {
+	if ($main::webmin_script_type ne 'web') {
 		# In a command-line script - call the real exit, so that the
 		# exit status gets properly propogated. In some cases this
 		# was not happening.
@@ -12957,7 +13006,151 @@ if (!$@ && $locale_system) {
 return $locale_def;
 }
 
-$done_web_lib_funcs = 1;
+=head2 get_http_redirect(url, [page], [timeout])
+
+Check if given URL redirects somewhere
+
+The parameters are :
+
+=item url - Given URL to check if it redirects anywhere, e.g. https://google.com
+
+=item page - Path in URL, e.g. /about as in https://www.google.com/about
+
+=item timeout - Timeout for connections, defaults to 15s
+
+Example of usage and return data:
+
+  Call:
+    &get_http_redirect('https://google.com', '/about')
+  Return:
+  {
+    'hops' => [
+      { [...] }
+    ],
+    'host' => 'about.google',
+    'path' => '',
+    'port' => '443',
+    'proto' => 'https',
+    'resolved' => {
+      'ipv4' => '216.239.32.29'
+    },
+    'url' => 'https://about.google'
+  }
+
+=cut
+
+sub get_http_redirect
+{
+my ($url, $page, $timeout) = @_;
+my ($out, $error, $con_err);
+state (@hops, %redirects);
+my ($proto, $host, $uport) = $url =~ /^(https?):\/\/([^:\/?#]*)(?:\:([0-9]+))?/;
+my ($ssl, $port) = (0, undef);
+$port = '80' if (!$uport);
+if ($proto eq 'https') {
+	$ssl = 1;
+	$port = '443' if (!$uport);
+	}
+
+# Set default port, page and timeout
+$port ||= $uport;
+$page ||= '/';
+$timeout ||= 15;
+
+# Original request
+my (%redirect);
+$redirect{'url'} = $url;
+$redirect{'proto'} = $proto;
+$redirect{'host'} = $host;
+$redirect{'port'} = $port;
+$redirect{'path'} = $page;
+push(@hops, \%redirect);
+
+# Build headers
+my @headers;
+push(@headers, [ "Host", $host ]);
+push(@headers, [ "User-agent", "Webmin" ]);
+push(@headers, [ "Accept-language", "en" ]);
+
+# Actually download it
+$main::download_timed_out = undef;
+local $SIG{ALRM} = \&download_timeout;
+alarm($timeout);
+my $h = &make_http_connection($host, $port, $ssl, "GET", $page, \@headers);
+alarm(0);
+$h = $main::download_timed_out if ($main::download_timed_out);
+if (ref($h)) {
+	&write_http_connection($h, "\r\n");
+	}
+&complete_http_download($h, undef, \$error, undef, undef, $host, $port,
+			undef, $ssl, 1, $timeout);
+if (ref($h)) {
+	$redirect{'response'} = $h->{'buffer'};
+	}
+else {
+	return { 'error' => $h };
+	}
+if (ref($h)) {
+	if ($h->{'buffer'} =~ /has\s+moved\s+<a\s+href=['"](.*?)['"]/mi) {
+		my $rurl = $1;
+		$rurl =~ s/\/$//;
+		$redirect{'redir'}->{'url'} = $rurl;
+		my ($proto, $host, $uport, $path) = $rurl =~ /^(https?):\/\/([^:\/?#]*)(?:\:([0-9]+))?(.*)/;
+		my $port = '80' if (!$uport);
+		if ($proto eq 'https') {
+			$port = '443' if (!$uport);
+			}
+		$port ||= $uport;
+		$redirect{'redir'}->{'proto'} = $proto;
+		$redirect{'redir'}->{'host'} = $host;
+		$redirect{'redir'}->{'port'} = $port;
+		$redirect{'redir'}->{'path'} = $path;
+		}
+	}
+
+# Finally test if redirected URL can be resolved
+my $redir_host = $redirect{'redir'}->{'host'};
+if ($redir_host) {
+	my $resolved4 = &to_ipaddress($redir_host);
+	my $resolved6 = &to_ip6address($redir_host);
+	if (!$resolved4 && !$resolved6) {
+		delete $redirect{'redir'};
+		}
+	else {
+		$redirect{'redir'}->{'resolved'}->{'ipv4'} = $resolved4
+			if ($resolved4);
+		$redirect{'redir'}->{'resolved'}->{'ipv6'} = $resolved6
+			if ($resolved6);
+		if ($redirects{'redir'}->{'host'} ne $redir_host) {
+			%redirects = %redirect;
+			my $rport = $redirect{'redir'}->{'port'};
+			$rport = undef if ($rport =~ /80|443/);
+			$rport = ":$rport" if ($rport);
+			my $rpath = $redirect{'redir'}->{'path'};
+			$rpath = undef if ($rpath eq "/");
+			return &get_http_redirect("$proto://$redir_host$rport", $rpath, $timeout);
+			}
+		}
+	}
+%redirect = %redirects if (keys %redirects);
+%redirect = %{$redirect{'redir'}};
+@hops = grep { $_->{'redir'} } @hops;
+$redirect{'hops'} = \@hops
+	if (@hops);
+return \%redirect;
+}
+
+=head2 get_http_cookie(cookie-name)
+
+Returns a cookie value based on its name
+
+=cut
+sub get_http_cookie
+{
+my ($name) = @_;
+my ($value) = $ENV{'HTTP_COOKIE'} =~ /$name=(\d+)(;|\z)/;
+return $value;
+}
 
 =head2 create_wrapper(wrapper-path, module, script)
 
@@ -13017,5 +13210,7 @@ else {
 &close_tempfile(CMD);
 chmod(0755, $path);
 }
+
+$done_web_lib_funcs = 1;
 
 1;
